@@ -82,12 +82,26 @@ void init_xi() {
 	XFreeDeviceList(devs);
 }
 
+void usage(const char *cmd) {
+	printf("Usage: %s <button 1> <press command 1> <release command 1>\n", cmd);
+	printf("          [<button 2> <press command 2> <release command 2>]...\n");
+}
+
 void parse_args(int argc, char **argv) {
+	if ((argc % 3) != 1 || argc <= 3) {
+		usage(argv[0]);
+		exit(EXIT_SUCCESS);
+	}
 	for (int i = 0; 3*i+3 < argc; i++) {
 		Commands cmds;
 		cmds.press = argv[3*i+2];
 		cmds.release = argv[3*i+3];
-		commands[atoi(argv[3*i+1])] = cmds;
+		int button = atoi(argv[3*i+1]);
+		if (!button) {
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
+		}
+		commands[button] = cmds;
 	}
 }
 
@@ -119,8 +133,8 @@ bool run_cmd(const char *cmd) {
 int main(int argc, char **argv) {
 	dpy = XOpenDisplay(NULL);
 
-	init_xi();
 	parse_args(argc, argv);
+	init_xi();
 	grab_buttons();
 
 	while (1) {
