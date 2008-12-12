@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
 		XNextEvent(dpy, &ev);
 		if (ev.type == ButtonPress) {
 			if (debug)
-				printf("Button %d released (core)\n", ev.xbutton.button);
+				printf("Button %d pressed (core)\n", ev.xbutton.button);
 			XTestFakeButtonEvent(dpy, ev.xbutton.button, False, CurrentTime);
 			continue;
 		}
