@@ -33,7 +33,6 @@ struct XiDevice {
 	unsigned int num_buttons;
 };
 
-int nMajor;
 std::list<XiDevice> devices;
 
 struct Commands {
@@ -44,9 +43,7 @@ struct Commands {
 std::map<unsigned int, Commands> commands;
 
 void init_xi() {
-	int nFEV, nFER, n;
-	if (!XQueryExtension(dpy,INAME,&nMajor,&nFEV,&nFER))
-		exit(EXIT_FAILURE);
+	int n;
 	XDeviceInfo *devs = XListInputDevices(dpy, &n);
 	if (!devs)
 		exit(EXIT_FAILURE);
@@ -130,17 +127,22 @@ int main(int argc, char **argv) {
 	parse_args(argc, argv);
 	init_xi();
 	grab_buttons();
+	int debug = !!getenv("DEBUG");
 
 	while (1) {
 		XEvent ev;
 		XNextEvent(dpy, &ev);
 		if (ev.type == ButtonPress) {
+			if (debug)
+				printf("Button %d released (core)\n", ev.xbutton.button);
 			XTestFakeButtonEvent(dpy, ev.xbutton.button, False, CurrentTime);
 			continue;
 		}
 		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
 			if (ev.type == j->press) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
+				if (debug)
+					printf("Button %d pressed (Xi)\n", bev->button);
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.press);
@@ -148,6 +150,8 @@ int main(int argc, char **argv) {
 			}
 			if (ev.type == j->release) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
+				if (debug)
+					printf("Button %d released (Xi)\n", bev->button);
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.release);
