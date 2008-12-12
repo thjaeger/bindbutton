@@ -120,13 +120,8 @@ void grab_buttons() {
 }
 
 void run_cmd(const char *cmd) {
-	switch (fork()) {
-		case 0:
-			execlp("/bin/sh", "sh", "-c", cmd, NULL);
-			exit(EXIT_FAILURE);
-		case -1:
-			printf("Error: can't execute command %s: fork failed\n", cmd);
-	}
+	if (system(cmd) == -1)
+		fprintf(stderr, "Error: system() failed\n");
 }
 
 int main(int argc, char **argv) {
