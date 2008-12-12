@@ -118,13 +118,16 @@ int main(int argc, char **argv) {
 		for (std::map<XID, XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
 			if (ev.type == j->second.press) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
-//				printf("press: %d\n", bev->button);
-				run_cmd(commands[bev->button].press);
+				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
+				if (i != commands.end())
+					run_cmd(i->second.press);
 				goto cont;
 			}
 			if (ev.type == j->second.release) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
-				run_cmd(commands[bev->button].release);
+				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
+				if (i != commands.end())
+					run_cmd(i->second.release);
 				goto cont;
 			}
 		}
