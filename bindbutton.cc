@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <list>
 #include <map>
 
 Display *dpy;
@@ -33,7 +34,7 @@ struct XiDevice {
 };
 
 int nMajor;
-std::map<XID, XiDevice> devices;
+std::list<XiDevice> devices;
 
 struct Commands {
 	const char *press;
@@ -77,7 +78,7 @@ void init_xi() {
 		DeviceButtonPress(dev.dev, dev.press, dev.classes[0]);
 		DeviceButtonRelease(dev.dev, dev.release, dev.classes[1]);
 
-		devices[devs[i].id] = dev;
+		devices.push_back(dev);
 	}
 	XFreeDeviceList(devs);
 }
@@ -109,16 +110,16 @@ void grab_buttons() {
 	for (std::map<unsigned int, Commands>::iterator i = commands.begin(); i != commands.end(); i++) {
 		XGrabButton(dpy, i->first, AnyModifier, ROOT, False, ButtonPressMask,
 				GrabModeAsync, GrabModeAsync, None, None);
-		for (std::map<XID, XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
-			if (i->first > j->second.num_buttons)
+		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
+			if (i->first > j->num_buttons)
 				continue;
-			XGrabDeviceButton(dpy, j->second.dev, i->first, AnyModifier, NULL,
-					ROOT, False, 2, j->second.classes, GrabModeAsync, GrabModeAsync);
+			XGrabDeviceButton(dpy, j->dev, i->first, AnyModifier, NULL,
+					ROOT, False, 2, j->classes, GrabModeAsync, GrabModeAsync);
 		}
 	}
 }
 
-bool run_cmd(const char *cmd) {
+void run_cmd(const char *cmd) {
 	switch (fork()) {
 		case 0:
 			execlp("/bin/sh", "sh", "-c", cmd, NULL);
@@ -126,8 +127,6 @@ bool run_cmd(const char *cmd) {
 		case -1:
 			printf("Error: can't execute command %s: fork failed\n", cmd);
 	}
-	return true;
-
 }
 
 int main(int argc, char **argv) {
@@ -144,15 +143,15 @@ int main(int argc, char **argv) {
 			XTestFakeButtonEvent(dpy, ev.xbutton.button, False, CurrentTime);
 			continue;
 		}
-		for (std::map<XID, XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
-			if (ev.type == j->second.press) {
+		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
+			if (ev.type == j->press) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.press);
 				goto cont;
 			}
-			if (ev.type == j->second.release) {
+			if (ev.type == j->release) {
 				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
