@@ -159,7 +159,7 @@ void grab_buttons() {
 	}
 	for (std::map<unsigned int, Commands>::iterator i = commands.begin(); i != commands.end(); i++) {
 		XGrabButton(dpy, i->first, AnyModifier, ROOT, False, ButtonPressMask,
-				GrabModeAsync, GrabModeAsync, None, None);
+				GrabModeSync, GrabModeAsync, None, None);
 		if (always_grab)
 			continue;
 		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
@@ -180,9 +180,11 @@ struct Event {
 	bool is_press;
 	unsigned int button;
 	XiDevice *dev;
+	bool core;
 	Time t;
 	bool get();
 	void handle();
+	bool combine(Event &ev);
 };
 
 bool Event::get() {
@@ -193,6 +195,7 @@ bool Event::get() {
 		is_press = true;
 		button = ev.xbutton.button;
 		dev = NULL;
+		core = true;
 		t = ev.xbutton.time;
 		if (debug)
 			printf("Button %d pressed (core)\n", button);
@@ -204,6 +207,7 @@ bool Event::get() {
 			is_press = true;
 			button = bev->button;
 			dev = &(*j);
+			core = false;
 			t = bev->time;
 			if (debug)
 				printf("Button %d pressed (Xi)\n", button);
@@ -214,6 +218,7 @@ bool Event::get() {
 			is_press = false;
 			button = bev->button;
 			dev = &(*j);
+			core = false;
 			t = bev->time;
 			if (debug)
 				printf("Button %d released (Xi)\n", bev->button);
@@ -225,11 +230,17 @@ bool Event::get() {
 }
 
 void Event::handle() {
-	if (!dev) {
-		if (is_press)
+	if (core && is_press) {
+		if (dev) {
 			XTestFakeButtonEvent(dpy, button, False, CurrentTime);
-		return;
+			XAllowEvents(dpy, AsyncBoth, t);
+		} else {
+			XAllowEvents(dpy, ReplayPointer, t);
+		}
 	}
+
+	if (!dev)
+		return;
 
 	std::map<unsigned int, Commands>::iterator i = commands.find(button);
 	if (i != commands.end())
@@ -247,6 +258,24 @@ void Event::handle() {
 	}
 }
 
+bool Event::combine(Event &ev) {
+	if (is_press != ev.is_press)
+		return false;
+	if (button != ev.button)
+		return false;
+	if (t != ev.t)
+		return false;
+	if (core && !dev && !ev.core && ev.dev) {
+		dev = ev.dev;
+		return true;
+	}
+	if (!core && dev && ev.core && !ev.dev) {
+		core = ev.core;
+		return true;
+	}
+	return false;
+}
+
 int main(int argc, char **argv) {
 	dpy = XOpenDisplay(NULL);
 
@@ -254,9 +283,20 @@ int main(int argc, char **argv) {
 	init_xi();
 	grab_buttons();
 
+	Event queue[2];
+	int queue_size = 0;
+
 	while (1) {
-		Event ev;
-		if (ev.get())
-			ev.handle();
+		while (queue_size < 2 && (!queue_size || XPending(dpy))) {
+			if (queue[queue_size].get())
+				queue_size++;
+			else
+				break;
+		}
+		if (queue_size == 2 && queue[0].combine(queue[1]))
+			queue_size = 1;
+		for (int i = 0; i < queue_size; i++)
+			queue[i].handle();
+		queue_size = 0;
 	}
 }
