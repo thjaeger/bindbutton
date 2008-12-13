@@ -28,12 +28,46 @@
 Display *dpy;
 #define ROOT (DefaultRootWindow(dpy))
 
+bool debug, always_grab;
+const char *device_name;
+
 struct XiDevice {
 	XDevice *dev;
 	XEventClass classes[2];
 	int press, release;
 	unsigned int num_buttons;
 	std::set<unsigned int> status;
+
+	void grab() {
+		if (debug)
+			printf("Grabbing device %ld\n", dev->device_id);
+		int status = XGrabDevice(dpy, dev, ROOT, False, 2, classes,
+				GrabModeAsync, GrabModeAsync, CurrentTime);
+		switch (status) {
+			case GrabSuccess:
+				break;
+			case AlreadyGrabbed:
+				printf("Grab error: Already grabbed\n");
+				break;
+			case GrabNotViewable:
+				printf("Grab error: Not viewable\n");
+				break;
+			case GrabFrozen:
+				printf("Grab error: Frozen\n");
+				break;
+			case GrabInvalidTime:
+				printf("Grab error: Invalid Time\n");
+				break;
+			default:
+				printf("Grab error: Unknown\n");
+		}
+	}
+
+	void ungrab() {
+		if (debug)
+			printf("Ungrabbing device %ld\n", dev->device_id);
+		XUngrabDevice(dpy, dev, CurrentTime);
+	}
 };
 
 std::list<XiDevice> devices;
@@ -44,9 +78,6 @@ struct Commands {
 };
 
 std::map<unsigned int, Commands> commands;
-
-int debug, always_grab;
-const char *device_name;
 
 void init_xi() {
 	int n;
@@ -119,34 +150,12 @@ void parse_args(int argc, char **argv) {
 	device_name = getenv("DEVICE");
 }
 
-void grab_device(XiDevice &dev) {
-	int status = XGrabDevice(dpy, dev.dev, ROOT, False, 2, dev.classes,
-			GrabModeAsync, GrabModeAsync, CurrentTime);
-	switch (status) {
-		case GrabSuccess:
-			break;
-		case AlreadyGrabbed:
-			printf("Grab error: Already grabbed\n");
-			break;
-		case GrabNotViewable:
-			printf("Grab error: Not viewable\n");
-			break;
-		case GrabFrozen:
-			printf("Grab error: Frozen\n");
-			break;
-		case GrabInvalidTime:
-			printf("Grab error: Invalid Time\n");
-			break;
-		default:
-			printf("Grab error: Unknown\n");
-	}
-}
 
 void grab_buttons() {
 	if (always_grab) {
 		printf("Grabbing XInput devices...\n");
 		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++)
-			grab_device(*j);
+			j->grab();
 	}
 	for (std::map<unsigned int, Commands>::iterator i = commands.begin(); i != commands.end(); i++) {
 		XGrabButton(dpy, i->first, AnyModifier, ROOT, False, ButtonPressMask,
@@ -167,6 +176,77 @@ void run_cmd(const char *cmd) {
 		fprintf(stderr, "Error: system() failed\n");
 }
 
+struct Event {
+	bool is_press;
+	unsigned int button;
+	XiDevice *dev;
+	Time t;
+	bool get();
+	void handle();
+};
+
+bool Event::get() {
+	XEvent ev;
+	XNextEvent(dpy, &ev);
+
+	if (ev.type == ButtonPress) {
+		is_press = true;
+		button = ev.xbutton.button;
+		dev = NULL;
+		t = ev.xbutton.time;
+		if (debug)
+			printf("Button %d pressed (core)\n", button);
+		return true;
+	}
+	for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
+		if (ev.type == j->press) {
+			XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
+			is_press = true;
+			button = bev->button;
+			dev = &(*j);
+			t = bev->time;
+			if (debug)
+				printf("Button %d pressed (Xi)\n", button);
+			return true;
+		}
+		if (ev.type == j->release) {
+			XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
+			is_press = false;
+			button = bev->button;
+			dev = &(*j);
+			t = bev->time;
+			if (debug)
+				printf("Button %d released (Xi)\n", bev->button);
+			return true;
+		}
+	}
+	printf("Unknown event\n");
+	return false;
+}
+
+void Event::handle() {
+	if (!dev) {
+		if (is_press)
+			XTestFakeButtonEvent(dpy, button, False, CurrentTime);
+		return;
+	}
+
+	std::map<unsigned int, Commands>::iterator i = commands.find(button);
+	if (i != commands.end())
+		run_cmd(is_press ? i->second.press : i->second.release);
+	if (always_grab)
+		return;
+	if (is_press) {
+		if (!dev->status.size())
+			dev->grab();
+		dev->status.insert(button);
+	} else {
+		dev->status.erase(button);
+		if (!dev->status.size())
+			dev->ungrab();
+	}
+}
+
 int main(int argc, char **argv) {
 	dpy = XOpenDisplay(NULL);
 
@@ -175,52 +255,8 @@ int main(int argc, char **argv) {
 	grab_buttons();
 
 	while (1) {
-		XEvent ev;
-		XNextEvent(dpy, &ev);
-		if (ev.type == ButtonPress) {
-			if (debug)
-				printf("Button %d pressed (core)\n", ev.xbutton.button);
-			XTestFakeButtonEvent(dpy, ev.xbutton.button, False, CurrentTime);
-			continue;
-		}
-		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
-			if (ev.type == j->press) {
-				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
-				if (debug)
-					printf("Button %d pressed (Xi)\n", bev->button);
-				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
-				if (i != commands.end())
-					run_cmd(i->second.press);
-				if (always_grab)
-					goto cont;
-				if (!j->status.size()) {
-					if (debug)
-						printf("Grabbing device %ld\n", j->dev->device_id);
-					grab_device(*j);
-				}
-				j->status.insert(bev->button);
-				goto cont;
-			}
-			if (ev.type == j->release) {
-				XDeviceButtonEvent* bev = (XDeviceButtonEvent *)&ev;
-				if (debug)
-					printf("Button %d released (Xi)\n", bev->button);
-				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
-				if (i != commands.end())
-					run_cmd(i->second.release);
-				if (always_grab)
-					goto cont;
-				j->status.erase(bev->button);
-				if (!j->status.size()) {
-					if (debug)
-						printf("Ungrabbing device %ld\n", j->dev->device_id);
-					XUngrabDevice(dpy, j->dev, CurrentTime);
-				}
-				goto cont;
-			}
-		}
-		printf("Unknown event\n");
-cont:
-		;
+		Event ev;
+		if (ev.get())
+			ev.handle();
 	}
 }
