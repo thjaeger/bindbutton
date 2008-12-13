@@ -44,6 +44,8 @@ struct Commands {
 
 std::map<unsigned int, Commands> commands;
 
+int always_grab;
+
 void init_xi() {
 	int n;
 	XDeviceInfo *devs = XListInputDevices(dpy, &n);
@@ -105,7 +107,35 @@ void parse_args(int argc, char **argv) {
 	}
 }
 
+void grab_device(XiDevice &dev) {
+	int status = XGrabDevice(dpy, dev.dev, ROOT, False, 2, dev.classes,
+			GrabModeAsync, GrabModeAsync, CurrentTime);
+	switch (status) {
+		case GrabSuccess:
+			break;
+		case AlreadyGrabbed:
+			printf("Grab error: Already grabbed\n");
+			break;
+		case GrabNotViewable:
+			printf("Grab error: Not viewable\n");
+			break;
+		case GrabFrozen:
+			printf("Grab error: Frozen\n");
+			break;
+		case GrabInvalidTime:
+			printf("Grab error: Invalid Time\n");
+			break;
+		default:
+			printf("Grab error: Unknown\n");
+	}
+}
+
 void grab_buttons() {
+	if (always_grab) {
+		printf("Grabbing XInput devices...\n");
+		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++)
+			grab_device(*j);
+	}
 	for (std::map<unsigned int, Commands>::iterator i = commands.begin(); i != commands.end(); i++) {
 		XGrabButton(dpy, i->first, AnyModifier, ROOT, False, ButtonPressMask,
 				GrabModeAsync, GrabModeAsync, None, None);
@@ -128,8 +158,9 @@ int main(int argc, char **argv) {
 
 	parse_args(argc, argv);
 	init_xi();
-	grab_buttons();
 	int debug = !!getenv("DEBUG");
+	always_grab = !!getenv("ALWAYS_GRAB");
+	grab_buttons();
 
 	while (1) {
 		XEvent ev;
@@ -148,29 +179,12 @@ int main(int argc, char **argv) {
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.press);
+				if (always_grab)
+					goto cont;
 				if (!j->status.size()) {
 					if (debug)
 						printf("Grabbing device %ld\n", j->dev->device_id);
-					int status = XGrabDevice(dpy, j->dev, ROOT, False, 2, j->classes,
-							GrabModeAsync, GrabModeAsync, CurrentTime);
-					switch (status) {
-						case GrabSuccess:
-							break;
-						case AlreadyGrabbed:
-							printf("Grab error: Already grabbed\n");
-							break;
-						case GrabNotViewable:
-							printf("Grab error: Not viewable\n");
-							break;
-						case GrabFrozen:
-							printf("Grab error: Frozen\n");
-							break;
-						case GrabInvalidTime:
-							printf("Grab error: Invalid Time\n");
-							break;
-						default:
-							printf("Grab error: Unknown\n");
-					}
+					grab_device(*j);
 				}
 				j->status.insert(bev->button);
 				goto cont;
@@ -182,6 +196,8 @@ int main(int argc, char **argv) {
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.release);
+				if (always_grab)
+					goto cont;
 				j->status.erase(bev->button);
 				if (!j->status.size()) {
 					if (debug)
