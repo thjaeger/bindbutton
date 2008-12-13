@@ -22,6 +22,7 @@
 
 #include <list>
 #include <map>
+#include <set>
 
 Display *dpy;
 #define ROOT (DefaultRootWindow(dpy))
@@ -31,6 +32,7 @@ struct XiDevice {
 	XEventClass classes[2];
 	int press, release;
 	unsigned int num_buttons;
+	std::set<unsigned int> status;
 };
 
 std::list<XiDevice> devices;
@@ -146,6 +148,13 @@ int main(int argc, char **argv) {
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.press);
+				if (!j->status.size()) {
+					if (debug)
+						printf("Grabbing device %ld\n", j->dev->device_id);
+					XGrabDevice(dpy, j->dev, ROOT, False, 2, j->classes,
+							GrabModeAsync, GrabModeAsync, CurrentTime);
+				}
+				j->status.insert(bev->button);
 				goto cont;
 			}
 			if (ev.type == j->release) {
@@ -155,6 +164,12 @@ int main(int argc, char **argv) {
 				std::map<unsigned int, Commands>::iterator i = commands.find(bev->button);
 				if (i != commands.end())
 					run_cmd(i->second.release);
+				j->status.erase(bev->button);
+				if (!j->status.size()) {
+					if (debug)
+						printf("Ungrabbing device %ld\n", j->dev->device_id);
+					XUngrabDevice(dpy, j->dev, CurrentTime);
+				}
 				goto cont;
 			}
 		}
