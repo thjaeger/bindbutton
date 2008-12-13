@@ -151,8 +151,26 @@ int main(int argc, char **argv) {
 				if (!j->status.size()) {
 					if (debug)
 						printf("Grabbing device %ld\n", j->dev->device_id);
-					XGrabDevice(dpy, j->dev, ROOT, False, 2, j->classes,
+					int status = XGrabDevice(dpy, j->dev, ROOT, False, 2, j->classes,
 							GrabModeAsync, GrabModeAsync, CurrentTime);
+					switch (status) {
+						case GrabSuccess:
+							break;
+						case AlreadyGrabbed:
+							printf("Grab error: Already grabbed\n");
+							break;
+						case GrabNotViewable:
+							printf("Grab error: Not viewable\n");
+							break;
+						case GrabFrozen:
+							printf("Grab error: Frozen\n");
+							break;
+						case GrabInvalidTime:
+							printf("Grab error: Invalid Time\n");
+							break;
+						default:
+							printf("Grab error: Unknown\n");
+					}
 				}
 				j->status.insert(bev->button);
 				goto cont;
