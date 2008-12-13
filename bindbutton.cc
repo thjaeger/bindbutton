@@ -18,6 +18,7 @@
 #include <X11/extensions/XTest.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <list>
@@ -44,7 +45,8 @@ struct Commands {
 
 std::map<unsigned int, Commands> commands;
 
-int always_grab;
+int debug, always_grab;
+const char *device_name;
 
 void init_xi() {
 	int n;
@@ -70,6 +72,9 @@ void init_xi() {
 		if (!dev.num_buttons)
 			continue;
 
+		if (device_name && strcasecmp(device_name, devs[i].name))
+			continue;
+
 		dev.dev = XOpenDevice(dpy, devs[i].id);
 		if (!dev.dev) {
 			printf("Opening Device %s failed.\n", devs[i].name);
@@ -82,6 +87,10 @@ void init_xi() {
 		devices.push_back(dev);
 	}
 	XFreeDeviceList(devs);
+	if (devices.size() == 0) {
+		printf("Error: No devices found\n");
+		exit(EXIT_FAILURE);
+	}
 }
 
 void usage(const char *cmd) {
@@ -105,6 +114,9 @@ void parse_args(int argc, char **argv) {
 		}
 		commands[button] = cmds;
 	}
+	debug = !!getenv("DEBUG");
+	always_grab = !!getenv("ALWAYS_GRAB");
+	device_name = getenv("DEVICE");
 }
 
 void grab_device(XiDevice &dev) {
@@ -139,6 +151,8 @@ void grab_buttons() {
 	for (std::map<unsigned int, Commands>::iterator i = commands.begin(); i != commands.end(); i++) {
 		XGrabButton(dpy, i->first, AnyModifier, ROOT, False, ButtonPressMask,
 				GrabModeAsync, GrabModeAsync, None, None);
+		if (always_grab)
+			continue;
 		for (std::list<XiDevice>::iterator j = devices.begin(); j != devices.end(); j++) {
 			if (i->first > j->num_buttons)
 				continue;
@@ -158,8 +172,6 @@ int main(int argc, char **argv) {
 
 	parse_args(argc, argv);
 	init_xi();
-	int debug = !!getenv("DEBUG");
-	always_grab = !!getenv("ALWAYS_GRAB");
 	grab_buttons();
 
 	while (1) {
