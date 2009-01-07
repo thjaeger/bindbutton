@@ -291,7 +291,7 @@ int main(int argc, char **argv) {
 			if (queue[queue_size].get())
 				queue_size++;
 			else
-				break;
+				continue;
 		}
 		if (queue_size == 2 && queue[0].combine(queue[1]))
 			queue_size = 1;
