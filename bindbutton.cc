@@ -277,6 +277,7 @@ bool Event::combine(Event &ev) {
 }
 
 int main(int argc, char **argv) {
+	printf("bindbutton is deprecated.  Its functionality is now available in\neasystroke (version >= 0.4.0)\n\n");
 	dpy = XOpenDisplay(NULL);
 
 	parse_args(argc, argv);
